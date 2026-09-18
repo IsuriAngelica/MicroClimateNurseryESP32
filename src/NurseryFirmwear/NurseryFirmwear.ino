@@ -151,13 +151,144 @@ volatile bool          buttonChanged   = false;
 volatile bool          buttonLevelLow  = false; // true while pressed
 volatile unsigned long buttonEdgeMs    = 0;
 
+// ---------------------------------------------------------------------------
+// Peripheral objects
+// ---------------------------------------------------------------------------
+DHT dht(DHT_PIN, DHT_TYPE);
+Servo ventServo;
+Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, -1);
+
+// ---------------------------------------------------------------------------
+// Forward declarations
+// ---------------------------------------------------------------------------
+void IRAM_ATTR onButtonEdge();
+void onTimerTick(void* arg);
+uint32_t getTicks();
+void readSensors();
+void evaluateSensorFault();
+void updateAutonomousLogic(uint32_t ticks);
+void applyVentAngle(int angleDeg);
+void setGrowLights(bool on);
+void updateGrowLights();
+void updateOLED();
+void handleSerialCommands();
+void handleButtonLogic(uint32_t ticks);
+
+/**
+ * @brief   Arduino setup routine: configure peripherals, start the hardware
+ *          timer, and attach the button interrupt.
+ * @return  void
+ */
+/**
+ * @brief   Arduino setup routine: configure peripherals, start the hardware
+ *          timer, and attach the button interrupt.
+ * @return  void
+ */
 void setup() {
-  
+  Serial.begin(115200);
+  delay(50);
 
+  pinMode(LED1_PIN, OUTPUT);
+  pinMode(LED2_PIN, OUTPUT);
+  pinMode(LED3_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  digitalWrite(LED1_PIN, LOW);
+  digitalWrite(LED2_PIN, LOW);
+  digitalWrite(LED3_PIN, LOW);
+
+  dht.begin();
+
+  ventServo.setPeriodHertz(50);
+  ventServo.attach(SERVO_PIN, 500, 2400);
+  applyVentAngle(VENT_CLOSED_DEG);
+
+  Wire.begin();
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println(F("[FAULT] SSD1306 OLED not found - check wiring"));
+  }
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.display();
+
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonEdge, CHANGE);
+
+  const esp_timer_create_args_t timerArgs = {
+    .callback = &onTimerTick,
+    .arg = nullptr,
+    .dispatch_method = ESP_TIMER_TASK,
+    .name = "nursery_tick"
+  };
+  esp_timer_create(&timerArgs, &periodicTimer);
+  esp_timer_start_periodic(periodicTimer, (uint64_t)TIMER_TICK_MS * 1000ULL);
+
+  Serial.println(F("=== Micro-Climate Nursery booted: AUTONOMOUS / IDLE ==="));
 }
 
+/**
+ * @brief   Main loop. Entirely non-blocking - every scheduled action is
+ *          gated by the hardware-timer tick counter, never by delay().
+ * @return  void
+ */
 void loop() {
-  
+  uint32_t ticks = getTicks();
 
+  handleSerialCommands();
+  handleButtonLogic(ticks);
+
+  if (ticks - lastSensorTick >= SENSOR_READ_TICKS) {
+    lastSensorTick = ticks;
+    readSensors();
+    evaluateSensorFault();
+  }
+
+  switch (currentMode) {
+    case AUTONOMOUS:
+      updateAutonomousLogic(ticks);
+      break;
+    case MANUAL_OVERRIDE:
+      applyVentAngle(VENT_OPEN_DEG); // locked open for maintenance
+      break;
+    case SENSOR_FAULT:
+      applyVentAngle(VENT_CLOSED_DEG); // safe posture
+      break;
+  }
+
+  updateGrowLights();
+
+  if (ticks - lastOledTick >= OLED_REFRESH_TICKS) {
+    lastOledTick = ticks;
+    updateOLED();
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Timer / interrupt infrastructure
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief   esp_timer callback fired every TIMER_TICK_MS. Increments a
+ *          protected tick counter used by loop() to schedule all timed
+ *          behaviour without delay().
+ * @param   arg Unused callback argument (required by esp_timer API).
+ * @return  void
+ */
+void onTimerTick(void* arg) {
+  portENTER_CRITICAL(&tickMux);
+  tickCounter++;
+  portEXIT_CRITICAL(&tickMux);
+}
+
+/**
+ * @brief   Thread-safe read of the current tick counter.
+ * @return  uint32_t Number of TIMER_TICK_MS periods elapsed since boot.
+ */
+uint32_t getTicks() {
+  uint32_t t;
+  portENTER_CRITICAL(&tickMux);
+  t = tickCounter;
+  portEXIT_CRITICAL(&tickMux);
+  return t;
+}
+
+
 
