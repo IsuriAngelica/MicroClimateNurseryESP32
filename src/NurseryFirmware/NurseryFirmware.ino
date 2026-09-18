@@ -589,3 +589,87 @@ void updateOLED() {
   display.display();
 }
 
+// ---------------------------------------------------------------------------
+// Serial command interface (S2 - operator-configurable thresholds)
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief   Non-blocking parser for operator commands typed into the serial
+ *          terminal:
+ *            "outside <celsius>"    - sets the simulated outdoor temperature
+ *            "threshold <celsius>"  - sets the vent-open temperature
+ *                                     (close threshold follows 2C behind it)
+ *            "settemp <celsius>"    - overrides the indoor temperature used
+ *                                     by the state machine (bypasses the
+ *                                     DHT22) for precise manual testing
+ *            "settemp auto"         - hands temperature control back to the
+ *                                     live DHT22 sensor
+ *            "sethumidity <pct>"    - overrides indoor humidity likewise
+ *            "sethumidity auto"     - hands humidity control back to DHT22
+ *            "status"               - prints mode/sub-state and override status
+ * @return  void
+ */
+void handleSerialCommands() {
+  static String line;
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (line.length() > 0) {
+        line.trim();
+        if (line.startsWith("outside ")) {
+          outsideTempC = line.substring(8).toFloat();
+          Serial.print(F("[CMD] outside temperature set to "));
+          Serial.println(outsideTempC);
+        } else if (line.startsWith("threshold ")) {
+          tempOpenC = line.substring(10).toFloat();
+          tempCloseC = tempOpenC - 2.0f;
+          Serial.print(F("[CMD] vent-open threshold set to "));
+          Serial.print(tempOpenC);
+          Serial.print(F("C (close at "));
+          Serial.print(tempCloseC);
+          Serial.println(F("C)"));
+        } else if (line.startsWith("settemp ")) {
+          String arg = line.substring(8);
+          arg.trim();
+          if (arg == "auto") {
+            tempOverrideActive = false;
+            Serial.println(F("[CMD] indoor temperature back to live DHT22"));
+          } else {
+            tempOverrideValueC = arg.toFloat();
+            tempOverrideActive = true;
+            Serial.print(F("[CMD] indoor temperature overridden to "));
+            Serial.print(tempOverrideValueC);
+            Serial.println(F("C (type 'settemp auto' to release)"));
+          }
+        } else if (line.startsWith("sethumidity ")) {
+          String arg = line.substring(12);
+          arg.trim();
+          if (arg == "auto") {
+            humidityOverrideActive = false;
+            Serial.println(F("[CMD] humidity back to live DHT22"));
+          } else {
+            humidityOverrideValuePct = arg.toFloat();
+            humidityOverrideActive = true;
+            Serial.print(F("[CMD] humidity overridden to "));
+            Serial.print(humidityOverrideValuePct);
+            Serial.println(F("% (type 'sethumidity auto' to release)"));
+          }
+        } else if (line == "status") {
+          Serial.print(F("[STATUS] mode="));
+          Serial.print((int)currentMode);
+          Serial.print(F(" subState="));
+          Serial.print((int)subState);
+          Serial.print(F(" tempOverride="));
+          Serial.print(tempOverrideActive ? "ON" : "off");
+          Serial.print(F(" humidityOverride="));
+          Serial.println(humidityOverrideActive ? "ON" : "off");
+        } else {
+          Serial.println(F("[CMD] Unknown command. Try: outside <C> | threshold <C> | settemp <C>|auto | sethumidity <%>|auto | status"));
+        }
+      }
+      line = "";
+    } else {
+      line += c;
+    }
+  }
+}
