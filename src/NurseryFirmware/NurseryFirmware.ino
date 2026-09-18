@@ -536,3 +536,56 @@ void updateGrowLights() {
   setGrowLights(dark);
 }
 
+// ---------------------------------------------------------------------------
+// Display
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief   Redraws the SSD1306 OLED with live temperature, humidity, light
+ *          level, current mode/sub-state, and vent status.
+ * @return  void
+ */
+void updateOLED() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+
+  display.print(F("T:"));
+  display.print(isnan(temperatureC) ? -99 : temperatureC, 1);
+  display.print(F("C H:"));
+  display.print(isnan(humidityPct) ? -99 : humidityPct, 0);
+  display.println(F("%"));
+
+  display.print(F("Light: "));
+  display.println(lightRaw);
+
+  display.setTextSize(1);
+  display.setCursor(0, 24);
+  switch (currentMode) {
+    case AUTONOMOUS: {
+      display.println(F("MODE: AUTONOMOUS"));
+      const char* names[] = {"IDLE", "VENT_OPEN", "BURST_VENT", "EMERGENCY"};
+      display.print(F("State: "));
+      display.println(names[subState]);
+      break;
+    }
+    case MANUAL_OVERRIDE:
+      display.setTextSize(1);
+      display.println(F("MANUAL OVERRIDE"));
+      display.println(F("VENTS LOCKED OPEN"));
+      break;
+    case SENSOR_FAULT:
+      display.println(F("*** SENSOR FAULT ***"));
+      display.println(F("DHT22 FAILED"));
+      display.println(F("Hold btn 3s to reset"));
+      break;
+  }
+
+  display.setCursor(0, 56);
+  display.print(F("Vent:"));
+  display.print(lastVentAngle);
+  display.println(F(" deg"));
+
+  display.display();
+}
+
