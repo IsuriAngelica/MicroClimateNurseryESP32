@@ -290,5 +290,77 @@ uint32_t getTicks() {
   return t;
 }
 
+/**
+ * @brief   GPIO interrupt service routine for the pushbutton. Records only
+ *          the edge time and level; all debounce/long-press logic runs in
+ *          handleButtonLogic() outside interrupt context.
+ * @return  void
+ */
+void IRAM_ATTR onButtonEdge() {
+  buttonLevelLow = (digitalRead(BUTTON_PIN) == LOW);
+  buttonEdgeMs = millis();
+  buttonChanged = true;
+}
+
+/**
+ * @brief   Processes button edges recorded by the ISR: debounces, detects
+ *          short presses (mode toggle) and long presses (>=3 s, used only
+ *          to clear SENSOR_FAULT).
+ * @param   ticks Current hardware-timer tick count (unused directly here,
+ *                kept for API symmetry with the other update functions).
+ * @return  void
+ */
+void handleButtonLogic(uint32_t ticks) {
+  static bool pressedState = false;
+  static unsigned long pressStartMs = 0;
+  // NOTE: press and release each get their own debounce timestamp. Sharing
+  // a single timestamp between both edges caused a real bug: Wokwi's
+  // simulated click fires press+release faster than one debounce window
+  // apart, so the release edge was being discarded and the button latched
+  // "pressed" forever after the very first click.
+  static unsigned long lastPressMs = 0;
+  static unsigned long lastReleaseMs = 0;
+
+  if (!buttonChanged) return;
+
+  bool levelLow;
+  unsigned long edgeMs;
+  noInterrupts();
+  levelLow = buttonLevelLow;
+  edgeMs   = buttonEdgeMs;
+  buttonChanged = false;
+  interrupts();
+
+  if (levelLow && !pressedState) {
+    // Falling edge = button just pressed
+    if (edgeMs - lastPressMs < DEBOUNCE_MS) return; // debounce presses only
+    lastPressMs = edgeMs;
+    pressedState = true;
+    pressStartMs = edgeMs;
+  } else if (!levelLow && pressedState) {
+    // Rising edge = button just released
+    if (edgeMs - lastReleaseMs < DEBOUNCE_MS) return; // debounce releases only
+    lastReleaseMs = edgeMs;
+    pressedState = false;
+    unsigned long heldFor = edgeMs - pressStartMs;
+
+    if (currentMode == SENSOR_FAULT) {
+      if (heldFor >= LONG_PRESS_MS && lastReadingValid) {
+        currentMode = AUTONOMOUS;
+        subState = IDLE;
+        Serial.println(F("[RECOVER] Long-press reset accepted -> AUTONOMOUS/IDLE"));
+      } else {
+        Serial.println(F("[FAULT] Reset requires a valid DHT reading AND a 3s hold"));
+      }
+    } else if (currentMode == AUTONOMOUS) {
+      currentMode = MANUAL_OVERRIDE;
+      Serial.println(F("[MODE] Button press -> MANUAL_OVERRIDE (vent locked open)"));
+    } else if (currentMode == MANUAL_OVERRIDE) {
+      currentMode = AUTONOMOUS;
+      subState = IDLE;
+      Serial.println(F("[MODE] Button press -> AUTONOMOUS"));
+    }
+  }
+}
 
 
