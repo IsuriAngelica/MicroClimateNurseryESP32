@@ -363,4 +363,50 @@ void handleButtonLogic(uint32_t ticks) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Sensors
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief   Samples temperature, humidity, and light level. Temperature and
+ *          humidity each come from the live DHT22 unless a serial test
+ *          override is active (see "settemp"/"sethumidity" commands), in
+ *          which case the operator-supplied value is used instead - this
+ *          lets you drive the whole state machine from the serial monitor
+ *          without needing exact DHT22 slider positions in Wokwi.
+ * @return  void
+ */
+void readSensors() {
+  temperatureC = tempOverrideActive ? tempOverrideValueC : dht.readTemperature();
+  humidityPct  = humidityOverrideActive ? humidityOverrideValuePct : dht.readHumidity();
+  lightRaw     = analogRead(LDR_AO_PIN);
+
+  Serial.print(F("[SENSOR] T="));
+  Serial.print(temperatureC);
+  Serial.print(tempOverrideActive ? F("C(override)") : F("C"));
+  Serial.print(F(" H="));
+  Serial.print(humidityPct);
+  Serial.print(humidityOverrideActive ? F("%(override)") : F("%"));
+  Serial.print(F(" Light="));
+  Serial.println(lightRaw);
+}
+
+/**
+ * @brief   Validates the most recent DHT22 reading and, on failure, forces
+ *          the system into SENSOR_FAULT mode (unless already recovering).
+ * @return  void
+ */
+void evaluateSensorFault() {
+  bool valid = !isnan(temperatureC) && !isnan(humidityPct) &&
+               temperatureC >= -40.0f && temperatureC <= 85.0f &&
+               humidityPct  >= 0.0f   && humidityPct  <= 100.0f;
+
+  lastReadingValid = valid;
+
+  if (!valid && currentMode != SENSOR_FAULT) {
+    currentMode = SENSOR_FAULT;
+    Serial.println(F("[FAULT] DHT22 invalid/disconnected -> SENSOR_FAULT"));
+  }
+}
+
 
