@@ -505,3 +505,34 @@ void applyVentAngle(int angleDeg) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Grow lights (LDR-driven, with SENSOR_FAULT override)
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief   Drives all three grow-light LEDs using the standard Arduino
+ *          digitalWrite() API.
+ * @param   on true to turn the grow lights on, false to turn them off.
+ */
+void setGrowLights(bool on) {
+  digitalWrite(LED1_PIN, on ? HIGH : LOW);
+  digitalWrite(LED2_PIN, on ? HIGH : LOW);
+  digitalWrite(LED3_PIN, on ? HIGH : LOW);
+}
+
+/**
+ * @brief   Decides whether the grow lights should be on: forced ON during
+ *          SENSOR_FAULT (baseline lighting), otherwise driven by the LDR
+ *          reading in both AUTONOMOUS and MANUAL_OVERRIDE modes.
+ * @return  void
+ */
+void updateGrowLights() {
+  if (currentMode == SENSOR_FAULT) {
+    setGrowLights(true);
+    return;
+  }
+  bool dark = LDR_LOGIC_INVERTED ? (lightRaw > LDR_DARK_THRESHOLD)
+                                  : (lightRaw < LDR_DARK_THRESHOLD);
+  setGrowLights(dark);
+}
+
