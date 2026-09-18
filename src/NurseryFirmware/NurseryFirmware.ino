@@ -409,4 +409,99 @@ void evaluateSensorFault() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Autonomous mode logic (state machine + burst venting)
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief   Evaluates the AUTONOMOUS sub-state machine (IDLE / VENT_OPEN /
+ *          BURST_VENTING / EMERGENCY_COOLING) using hysteresis thresholds,
+ *          then drives the vent servo accordingly. Burst venting timing is
+ *          entirely tick-based (non-blocking).
+ * @param   ticks Current hardware-timer tick count.
+ * @return  void
+ */
+void updateAutonomousLogic(uint32_t ticks) {
+  bool cold = outsideTempC < OUTSIDE_COLD_C;
+
+  switch (subState) {
+    case IDLE:
+      if (temperatureC > tempEmergencyC) {
+        subState = EMERGENCY_COOLING;
+      } else if (temperatureC > tempOpenC && cold) {
+        subState = BURST_VENTING;
+        burstPhaseTick = ticks;
+        burstVentOpenPhase = true;
+      } else if (temperatureC > tempOpenC && !cold) {
+        subState = VENT_OPEN;
+      }
+      break;
+
+    case VENT_OPEN:
+      if (temperatureC > tempEmergencyC) {
+        subState = EMERGENCY_COOLING;
+      } else if (cold) {
+        subState = BURST_VENTING;
+        burstPhaseTick = ticks;
+        burstVentOpenPhase = true;
+      } else if (temperatureC <= tempCloseC) {
+        subState = IDLE;
+      }
+      break;
+
+    case BURST_VENTING:
+      if (temperatureC > tempEmergencyC) {
+        subState = EMERGENCY_COOLING;
+      } else if (!cold) {
+        subState = VENT_OPEN;
+      } else if (temperatureC <= tempCloseC) {
+        subState = IDLE;
+      }
+      break;
+
+    case EMERGENCY_COOLING:
+      if (temperatureC <= tempEmergencyExitC) {
+        subState = VENT_OPEN;
+      }
+      break;
+  }
+
+  switch (subState) {
+    case IDLE:
+      applyVentAngle(VENT_CLOSED_DEG);
+      break;
+    case VENT_OPEN:
+    case EMERGENCY_COOLING:
+      applyVentAngle(VENT_OPEN_DEG);
+      break;
+    case BURST_VENTING:
+      if (burstVentOpenPhase) {
+        applyVentAngle(VENT_OPEN_DEG);
+        if (ticks - burstPhaseTick >= BURST_OPEN_TICKS) {
+          burstVentOpenPhase = false;
+          burstPhaseTick = ticks;
+        }
+      } else {
+        applyVentAngle(VENT_CLOSED_DEG);
+        if (ticks - burstPhaseTick >= BURST_CLOSE_TICKS) {
+          burstVentOpenPhase = true;
+          burstPhaseTick = ticks;
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * @brief   Moves the vent servo to the requested angle, only issuing a new
+ *          PWM write when the angle actually changes (reduces servo jitter).
+ * @param   angleDeg Target angle in degrees (0 = closed, 90 = open).
+ * @return  void
+ */
+void applyVentAngle(int angleDeg) {
+  if (angleDeg != lastVentAngle) {
+    ventServo.write(angleDeg);
+    lastVentAngle = angleDeg;
+  }
+}
 
