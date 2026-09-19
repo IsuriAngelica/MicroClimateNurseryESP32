@@ -40,7 +40,7 @@ IoT-based embedded system that monitors temperature, humidity, and light levels,
 - `status` - Print current state
 
 ## Wokwi Simulation
-https://wokwi.com/projects/474681346594340865
+https://wokwi.com/projects/475586073236795393
 
 ## Build Instructions
 1. Install libraries: DHT sensor library, ESP32Servo, Adafruit SSD1306, Adafruit GFX
