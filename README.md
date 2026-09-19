@@ -44,6 +44,6 @@ https://wokwi.com/projects/475586073236795393
 
 ## Build Instructions
 1. Install libraries: DHT sensor library, ESP32Servo, Adafruit SSD1306, Adafruit GFX
-2. Open `MicroClimateNursery.ino` in Arduino IDE
+2. Open `NurseryFirmware.ino` in Arduino IDE
 3. Select ESP32 Dev Module
 4. Upload
